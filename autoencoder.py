@@ -28,6 +28,7 @@ with tf.name_scope("Decoding"):
 with tf.name_scope("Loss"):
     y_pred = tf.reshape(decoded_image, [-1, 150528])
     y_true = tf.reshape(X, [-1, 150528])
+    soft-n-cut-loss = 0
     reconstruction_loss = tf.reduce_mean(tf.pow(y_pred - y_true, 2)) 
 
 tf.summary.scalar("SEE loss", reconstruction_loss)

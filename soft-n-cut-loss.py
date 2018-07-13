@@ -1,16 +1,15 @@
 import cv2
 import numpy as np 
 import tensorflow as tf 
-
-
-def edge_weights(flatten_image, std_intensity, std_position, radius, rows , cols):
-'''
+import numpy as np
+def edge_weights(flatten_image, rows , cols, std_intensity=5, std_position=5, radius=9):
+	'''
 	Inputs :
 	flatten_image : 1 dim tf array of the row flattened image ( intensity is the average of the three channels) 
 	std_intensity : standard deviation for intensity 
 	std_position : standard devistion for position
 	radius : the length of the around the pixel where the weights 
-			 is non-zero
+	is non-zero
 	rows : rows of the original image (unflattened image)
 	cols : cols of the original image (unflattened image)
 
@@ -19,21 +18,21 @@ def edge_weights(flatten_image, std_intensity, std_position, radius, rows , cols
 
 	Used parameters :
 	n : number of pixels 
-'''
- 	n = rows*cols
+	'''
+	n = rows*cols
 	w = tf.zeros([n,n])
- 	for i in range(n):
- 		for j in range(n):
- 			# because a (x,y) in the original image responds in (x-1)*cols + (y+1) in the flatten image
- 			x_i= (i//cols) +1 
- 			y_i= (i%cols) - 1
- 			x_j= (j//cols) + 1
- 			y_j= (j%cols) - 1
- 			distance = sqrt((x_i - x_j)**2 + (y_i - y_j)**2)
- 			if (distance < radius):
- 				w[i][j] = exp(-((flatten_image[i]- flatten_image[j])/std_intensity)**2) * exp(-(distance/std_position)**2)
- 	# return w as a lookup table			
- 	return w
+	for i in range(n):
+		for j in range(n):
+			# because a (x,y) in the original image responds in (x-1)*cols + (y+1) in the flatten image
+			x_i= (i//cols) +1 
+			y_i= (i%cols) - 1
+			x_j= (j//cols) + 1
+			y_j= (j%cols) - 1
+			distance = np.sqrt((x_i - x_j)**2 + (y_i - y_j)**2)
+			if (distance < radius):
+				w[i][j] = tf.exp(-((flatten_image[i]- flatten_image[j])/std_intensity)**2) * tf.exp(-(distance/std_position)**2)
+	# return w as a lookup table			
+	return w
 
 def outer_product(v1,v2):
 	'''
@@ -44,7 +43,7 @@ def outer_product(v1,v2):
 	Output :
 	v1 x v2 : m*m array
 	'''
-	return tf.matmul(v1,v2)
+	return tf.matmul(v1,tf.transpose(v2))
 
 
 def numerator(k_class_prob,weights):
@@ -79,9 +78,13 @@ def soft_n_cut_loss(flatten_image,prob, k, rows, cols):
 	'''
 
 	soft_n_cut_loss = tf.Variable(k)
-	weights = edge_weights(flatten_image, std_intensity = 5 , std_position = 5, radius = 9,rows ,cols) 
+	weights = edge_weights(flatten_image, rows ,cols)
 	for t in range(k): 
 		soft_n_cut_loss = soft_n_cut_loss - (numerator(prob[:,:,t],weights)/denominator(prob[:,:,t],weights))
 
 	return soft_n_cut_loss
 
+
+image = tf.ones([256*256], dtype=tf.float64)
+prob = tf.ones([256, 256, 3])
+loss = soft_n_cut_loss(image, prob, 3, 256,256)

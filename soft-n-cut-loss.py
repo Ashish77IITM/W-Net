@@ -21,6 +21,15 @@ def edge_weights(flatten_image, rows , cols, std_intensity=5, std_position=5, ra
 	'''
 	n = rows*cols
 	w = tf.zeros([n,n])
+	A = outer_product(flatten_image, tf.ones_like(flatten_image))
+	A_T = tf.transpose(A)
+	ele_diff = tf.exp(-1*tf.square((tf.divide((A - A_T), std_intensity))))
+
+	xx, yy = tf.meshgrid(tf.range(rows), tf.range(cols))
+	distance_matrix = tf.exp(-1*tf.divide(tf.square(xx - yy), std_position**2))
+	# ele_diff = tf.reshape(ele_diff, (rows, cols))
+	# w = ele_diff + distance_matrix
+	'''
 	for i in range(n):
 		for j in range(n):
 			# because a (x,y) in the original image responds in (x-1)*cols + (y+1) in the flatten image
@@ -32,6 +41,7 @@ def edge_weights(flatten_image, rows , cols, std_intensity=5, std_position=5, ra
 			if (distance < radius):
 				w[i][j] = tf.exp(-((flatten_image[i]- flatten_image[j])/std_intensity)**2) * tf.exp(-(distance/std_position)**2)
 	# return w as a lookup table			
+	'''
 	return w
 
 def outer_product(v1,v2):
@@ -43,7 +53,10 @@ def outer_product(v1,v2):
 	Output :
 	v1 x v2 : m*m array
 	'''
-	return tf.matmul(v1,tf.transpose(v2))
+	v1 = tf.expand_dims((v1), axis=0)
+	v2 = tf.expand_dims((v2), axis=0)
+	print(v2.get_shape())
+	return tf.matmul(tf.transpose(v1),(v2))
 
 
 def numerator(k_class_prob,weights):
@@ -79,10 +92,11 @@ def soft_n_cut_loss(flatten_image,prob, k, rows, cols):
 
 	soft_n_cut_loss = tf.Variable(k)
 	weights = edge_weights(flatten_image, rows ,cols)
-	for t in range(k): 
-		soft_n_cut_loss = soft_n_cut_loss - (numerator(prob[:,:,t],weights)/denominator(prob[:,:,t],weights))
+	# for t in range(k): 
+	# 	soft_n_cut_loss = soft_n_cut_loss - (numerator(prob[:,:,t],weights)/denominator(prob[:,:,t],weights))
 
-	return soft_n_cut_loss
+	return weights
+	# return soft_n_cut_loss
 
 
 image = tf.ones([256*256], dtype=tf.float64)

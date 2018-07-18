@@ -19,14 +19,26 @@ def edge_weights(flatten_image, rows , cols, std_intensity=5, std_position=5, ra
 	Used parameters :
 	n : number of pixels 
 	'''
-	n = rows*cols
-	w = tf.zeros([n,n])
 	A = outer_product(flatten_image, tf.ones_like(flatten_image))
 	A_T = tf.transpose(A)
-	ele_diff = tf.exp(-1*tf.square((tf.divide((A - A_T), std_intensity))))
+	intensity_weight = tf.exp(-1*tf.square((tf.divide((A - A_T), std_intensity))))
 
 	xx, yy = tf.meshgrid(tf.range(rows), tf.range(cols))
-	distance_matrix = tf.exp(-1*tf.divide(tf.square(xx - yy), std_position**2))
+	xx = tf.reshape(xx, (rows*cols,))
+	yy = tf.reshape(yy, (rows*cols,))
+	A_x = outer_product(xx, tf.ones_like(xx))
+	A_y = outer_product(yy, tf.ones_like(yy))
+
+	xi_xj = A_x - tf.transpose(A_x)
+	yi_yj = A_y - tf.transpose(A_y)
+
+	sq_distance_matrix = tf.square(xi_xj) + tf.square(yi_yj)
+
+	dist_weight = tf.exp(-tf.divide(sq_distance_matrix,tf.square(std_position)))
+	(dist_weight) = tf.cast(dist_weight, tf.float32)
+	weight = tf.multiply(intensity_weight, dist_weight)
+
+
 	# ele_diff = tf.reshape(ele_diff, (rows, cols))
 	# w = ele_diff + distance_matrix
 	'''
@@ -42,7 +54,7 @@ def edge_weights(flatten_image, rows , cols, std_intensity=5, std_position=5, ra
 				w[i][j] = tf.exp(-((flatten_image[i]- flatten_image[j])/std_intensity)**2) * tf.exp(-(distance/std_position)**2)
 	# return w as a lookup table			
 	'''
-	return w
+	return weight
 
 def outer_product(v1,v2):
 	'''
@@ -55,16 +67,17 @@ def outer_product(v1,v2):
 	'''
 	v1 = tf.expand_dims((v1), axis=0)
 	v2 = tf.expand_dims((v2), axis=0)
-	print(v2.get_shape())
+	# print(v2.get_shape())
 	return tf.matmul(tf.transpose(v1),(v2))
 
-
 def numerator(k_class_prob,weights):
+
 	'''
 	Inputs :
 	k_class_prob : k_class pixelwise probability (rows*cols) tensor 
 	weights : edge weights n*n tensor 
 	'''
+	k_class_prob = tf.reshape(k_class_prob, (-1,))	
 	return tf.reduce_sum(tf.multiply(weights,outer_product(k_class_prob,k_class_prob)))
 
 def denominator(k_class_prob,weights):	
@@ -73,7 +86,8 @@ def denominator(k_class_prob,weights):
 	k_class_prob : k_class pixelwise probability (rows*cols) tensor
 	weights : edge weights	n*n tensor 
 	'''
-
+	k_class_prob = tf.cast(k_class_prob, tf.float32)
+	k_class_prob = tf.reshape(k_class_prob, (-1,))	
 	return tf.reduce_sum(tf.multiply(weights,outer_product(k_class_prob,tf.ones(tf.shape(k_class_prob)))))
 
 def soft_n_cut_loss(flatten_image,prob, k, rows, cols):
@@ -90,15 +104,22 @@ def soft_n_cut_loss(flatten_image,prob, k, rows, cols):
 
 	'''
 
-	soft_n_cut_loss = tf.Variable(k)
+	soft_n_cut_loss = k
 	weights = edge_weights(flatten_image, rows ,cols)
-	# for t in range(k): 
-	# 	soft_n_cut_loss = soft_n_cut_loss - (numerator(prob[:,:,t],weights)/denominator(prob[:,:,t],weights))
+	
+	for t in range(k): 
+		soft_n_cut_loss = soft_n_cut_loss - (numerator(prob[:,:,t],weights)/denominator(prob[:,:,t],weights))
 
-	return weights
+	return weights,soft_n_cut_loss
 	# return soft_n_cut_loss
 
 
-image = tf.ones([256*256], dtype=tf.float64)
-prob = tf.ones([256, 256, 3])
-loss = soft_n_cut_loss(image, prob, 3, 256,256)
+image = tf.ones([10*10])
+prob = tf.ones([10, 10, 4])/4
+w, loss = soft_n_cut_loss(image, prob, 4, 10,10)
+
+with tf.Session() as sess:
+	init = tf.global_variables_initializer()
+	sess.run(init)
+	print(sess.run(loss))
+	print (sess.run(w))

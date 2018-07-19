@@ -3,7 +3,7 @@ from os import listdir
 import numpy as np
 
 file_path = "data/images/"
-batch_size = 1
+batch_size = 32
 
 def parse_image(filename):
     image_string = tf.read_file(file_path + filename)

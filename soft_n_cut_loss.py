@@ -60,14 +60,15 @@ def outer_product(v1,v2):
 	'''
 	Inputs:
 	v1 : m*1 tf array
-	v2 : 1*m tf array
+	v2 : m*1 tf array
 
 	Output :
 	v1 x v2 : m*m array
 	'''
+	v1 = tf.reshape(v1, (-1,))
+	v2 = tf.reshape(v2, (-1,))
 	v1 = tf.expand_dims((v1), axis=0)
 	v2 = tf.expand_dims((v2), axis=0)
-	# print(v2.get_shape())
 	return tf.matmul(tf.transpose(v1),(v2))
 
 def numerator(k_class_prob,weights):
@@ -110,16 +111,16 @@ def soft_n_cut_loss(flatten_image,prob, k, rows, cols):
 	for t in range(k): 
 		soft_n_cut_loss = soft_n_cut_loss - (numerator(prob[:,:,t],weights)/denominator(prob[:,:,t],weights))
 
-	return weights,soft_n_cut_loss
+	return soft_n_cut_loss
 	# return soft_n_cut_loss
 
+if __name__ == '__main__':
+	image = tf.ones([10*10])
+	prob = tf.ones([10, 10, 4])/4
+	w, loss = soft_n_cut_loss(image, prob, 4, 10,10)
 
-image = tf.ones([10*10])
-prob = tf.ones([10, 10, 4])/4
-w, loss = soft_n_cut_loss(image, prob, 4, 10,10)
-
-with tf.Session() as sess:
-	init = tf.global_variables_initializer()
-	sess.run(init)
-	print(sess.run(loss))
-	print (sess.run(w))
+	with tf.Session() as sess:
+		init = tf.global_variables_initializer()
+		sess.run(init)
+		print(sess.run(loss))
+		print (sess.run(w))

@@ -3,12 +3,12 @@ from os import listdir
 import numpy as np
 
 file_path = "data/images/"
-batch_size = 32
+batch_size = 1
 
 def parse_image(filename):
     image_string = tf.read_file(file_path + filename)
     image_decoded = tf.image.decode_jpeg(image_string, channels=3)
-    image_resized = tf.image.resize_images(image_decoded, [224, 224])
+    image_resized = tf.image.resize_images(image_decoded, [64, 64])
     return image_resized
 
 def get_filenames():

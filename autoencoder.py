@@ -7,10 +7,11 @@ from decoder import decode
 from input_data import input_data
 from soft_n_cut_loss import soft_n_cut_loss
 import coloredlogs
+
 logdir = "checkpoints/logs"
 checkpt_dir_ckpt = "checkpoints/trained.ckpt"
 checkpt_dir = "checkpoints"
-num_classes = 20
+num_classes = 2
 
 # network parameters
 learning_rate = 0.0001
@@ -31,7 +32,7 @@ with tf.name_scope("Decoding"):
 with tf.name_scope("Loss"):
     y_pred = tf.reshape(decoded_image, [-1, 150528])
     y_true = tf.reshape(X, [-1, 150528])
-    # soft_loss = soft_n_cut_loss(y_true, encoded_image, num_classes, IMG_ROWS, IMG_COLS)
+    soft_loss = soft_n_cut_loss(y_true, encoded_image, num_classes, IMG_ROWS, IMG_COLS)
     reconstruction_loss = tf.reduce_mean(tf.pow(y_pred - y_true, 2)) 
     # print (X.get_shape())
     # print (decoded_image.get_shape())
@@ -43,7 +44,7 @@ tf.summary.scalar("SEE_loss", reconstruction_loss)
 # tf.summary.scalar("Soft_Loss", soft_loss)
 with tf.name_scope("Optimization"):
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate)
-    # soft_op = optimizer.minimize(loss=soft_loss)
+    soft_op = optimizer.minimize(loss=soft_loss)
     recons_op = optimizer.minimize(loss=reconstruction_loss)
 
 merged_summary = tf.summary.merge_all()
@@ -63,23 +64,24 @@ with tf.Session() as sess:
     if exists(checkpt_dir):
         # print ("\n\n\n\n\n\n\n\n\n")
         # print ("n\n\n\n\n\n\n\n\n\n")
-        tf.logging.info('Loading Checkpoint from '+ tf.train.latest_checkpoint(checkpt_dir))
-        saver.restore(sess, tf.train.latest_checkpoint(checkpt_dir))
+        if tf.train.latest_checkpoint(checkpt_dir) is not None:
+            tf.logging.info('Loading Checkpoint from '+ tf.train.latest_checkpoint(checkpt_dir))
+            saver.restore(sess, tf.train.latest_checkpoint(checkpt_dir))
     iterator = input_data()
+    next_items = iterator.get_next()
 
     for i in range(num_steps + 1):
-        next_items = iterator.get_next()
         batch_x =  sess.run(next_items)
-        # _ = sess.run(soft_op, feed_dict={X: batch_x})
+        _ = sess.run(soft_op, feed_dict={X: batch_x})
         _ = sess.run(recons_op, feed_dict={X: batch_x})
 
         if i % display_step == 0:
-            # recons_loss,soft_nloss, summary = sess.run([reconstruction_loss,soft_loss, merged_summary], feed_dict={X: batch_x})
-            recons_loss, summary = sess.run([reconstruction_loss, merged_summary], feed_dict={X: batch_x})
-            # print("Iteration number: ", str(i), "Recons Loss: ", str(recons_loss), "Soft-ncut", str(soft_nloss))
-            tf.logging.info('Iteration number: '+ str(i)+ "Recons Loss: "+ str(recons_loss)+ "Soft-ncut"+ str(0))
+            recons_loss,soft_nloss, summary = sess.run([reconstruction_loss,soft_loss, merged_summary], feed_dict={X: batch_x})
+            # recons_loss, summary = sess.run([reconstruction_loss, merged_summary], feed_dict={X: batch_x})
+            tf.logging.info("Iteration number: ", str(tf.train.get_global_step()), "Recons Loss: ", str(recons_loss), "Soft-ncut", str(soft_nloss))
+            # tf.logging.info('Iteration number: '+ str(i)+ " Recons Loss: "+ str(recons_loss)+ " Soft-ncut"+ str(0))
             train_writer.add_summary(summary)
-            saver.save(sess, checkpt_dir_ckpt, global_step=global_step + i)
+            saver.save(sess, checkpt_dir_ckpt, global_step=tf.train.get_global_step())
 
 
 

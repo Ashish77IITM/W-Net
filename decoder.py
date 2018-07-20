@@ -1,6 +1,6 @@
 import tensorflow as tf
 
-num_classes = 20
+num_classes = 2
 
 variance_epsilon = 0.0001
 
@@ -315,7 +315,6 @@ def decode(X):
                 kernel_size=[1, 1],
                 strides=1,
                 padding="same",
-                activation=tf.nn.relu
+                activation=None
             )
-
     return output

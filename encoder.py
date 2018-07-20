@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
 
-num_classes = 20
+num_classes = 2
 variance_epsilon = 0.0001
 
 def encode(X):

@@ -18,7 +18,7 @@ from os.path import exists
 from input_data import input_data
 
 
-def edge_weights(flatten_image, rows , cols, std_intensity=5, std_position=5, radius=9):
+def edge_weights(flatten_image, rows , cols, std_intensity=10, std_position=4, radius=5):
 	'''
 	Inputs :
 	flatten_image : 1 dim tf array of the row flattened image ( intensity is the average of the three channels) 
@@ -199,21 +199,22 @@ if __name__ == '__main__':
 		else:
 			inputs = input_tensor
 		bn_axis=3
-		prepool_1, layer1 = enc_conv_block(inputs, [64, 64], [3,3], block='a', module=module)
-		prepool_2, layer2 = enc_conv_block(layer1, [128,128], [3,3], block='b', module=module)
-		prepool_3, layer3 = enc_conv_block(layer2, [256,256], [3,3], block='c', module=module)
-		prepool_4, layer4 = enc_conv_block(layer3, [512,512], [3,3], block='d', module=module)
+		with tf.name_scope(module+'_Encoder'):
+			prepool_1, layer1 = enc_conv_block(inputs, [64, 64], [3,3], block='a', module=module)
+			prepool_2, layer2 = enc_conv_block(layer1, [128,128], [3,3], block='b', module=module)
+			prepool_3, layer3 = enc_conv_block(layer2, [256,256], [3,3], block='c', module=module)
+			prepool_4, layer4 = enc_conv_block(layer3, [512,512], [3,3], block='d', module=module)
 
-		layer4 = Dropout(0.5)(layer4)
+			layer4 = Dropout(0.5)(layer4)
 
-		join_layer = join_enc_dec(layer4, [1024,1024], [3,3], module=module)
-		
-		layer4 = dec_conv_block([join_layer, prepool_4], [512,512,512], [2,3,3], block='d', module=module)
-		layer3 = dec_conv_block([layer4, prepool_3], [256,256,256], [2,3,3], block='c', module=module)
-		layer2 = dec_conv_block([layer3, prepool_2], [128,128,128], [2,3,3], block='b', module=module)
-		layer1 = dec_conv_block([layer2, prepool_1], [64,64,64], [2,3,3], block='a', module=module)
+			join_layer = join_enc_dec(layer4, [1024,1024], [3,3], module=module)
+		with tf.name_scope(module+'_Decoder'):
+			layer4 = dec_conv_block([join_layer, prepool_4], [512,512,512], [2,3,3], block='d', module=module)
+			layer3 = dec_conv_block([layer4, prepool_3], [256,256,256], [2,3,3], block='c', module=module)
+			layer2 = dec_conv_block([layer3, prepool_2], [128,128,128], [2,3,3], block='b', module=module)
+			layer1 = dec_conv_block([layer2, prepool_1], [64,64,64], [2,3,3], block='a', module=module)
 
-		output = Conv2D(output_layers, 1, kernel_initializer='he_normal', name=module+'_output_layer')(layer1)
+			output = Conv2D(output_layers, 1, kernel_initializer='he_normal', name=module+'_output_layer')(layer1)
 
 		return output
 
@@ -239,24 +240,34 @@ if __name__ == '__main__':
 	output = encoder(num_classes, input_tensor = x)
 	decode = decoder(input_tensor=output)
 	x_yuv = tf.image.rgb_to_yuv(x)
-	soft_map = (x, output)
-	loss = tf.map_fn(lambda x:soft_n_cut_loss( tf.reshape(tf.image.rgb_to_grayscale(x[0]), (img_rows*img_cols,)), tf.reshape(x[1], (img_rows, img_cols, num_classes)), num_classes, img_rows, img_cols), soft_map, dtype=x.dtype)
-	loss = 1000*tf.reduce_mean(loss)
-	recons_map = (x, decode)
-	recons_loss = tf.map_fn(lambda x: tf.reduce_mean(tf.square(x[0] - x[1])), recons_map, dtype=x.dtype)
-	recons_loss = tf.reduce_mean(recons_loss)
+	with tf.name_scope('loss_functions'):
+		soft_map = (x, output)
+		loss = tf.map_fn(lambda x:soft_n_cut_loss( tf.reshape(tf.image.rgb_to_grayscale(x[0]), (img_rows*img_cols,)), tf.reshape(x[1], (img_rows, img_cols, num_classes)), num_classes, img_rows, img_cols), soft_map, dtype=x.dtype)
+		loss = tf.reduce_mean(loss)
+		recons_map = (x, decode)
+		recons_loss = tf.map_fn(lambda x: tf.reduce_mean(tf.square(x[0] - x[1])), recons_map, dtype=x.dtype)
+		recons_loss = tf.reduce_mean(recons_loss)
+		tf.summary.scalar('soft_n_cut_loss', loss)
+		tf.summary.scalar('reconstruction_loss', recons_loss)
 	# loss = soft_n_cut_loss(tf.reshape(x_yuv[:,:,:,0], (img_cols*img_rows,)), tf.reshape(output, (img_rows, img_cols, num_classes)), num_classes, img_rows, img_cols)
 	# recons_loss = tf.reduce_mean(tf.square(x - decode))
 	
 	vars_encoder = [var for var in tf.trainable_variables() if var.name.startswith("ENCODER")]
 	vars_trainable = [var for var in tf.trainable_variables()]
+	with tf.name_scope('optimization'):
+		optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
+		op_recons = optimizer.minimize(recons_loss, global_step = global_step_tensor, var_list=vars_trainable)
+		op = optimizer.minimize(loss, global_step=global_step_tensor, var_list=vars_encoder)
+		grads_recons = optimizer.compute_gradients(recons_loss)
+		grads_soft = optimizer.compute_gradients(loss, var_list=vars_encoder)
+	with tf.name_scope('grad_reconstruction'):
+		for index, grad in enumerate(grads_recons):
+			tf.summary.histogram("{}_grad".format(grads_recons[index][1].name), grads_recons[index])
+	with tf.name_scope('grad_softncut'):
+		for index, grad in enumerate(grads_soft):
+			tf.summary.histogram("{}_grad".format(grads_soft[index][1].name), grads_soft[index])
+		
 
-	optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
-	op_recons = optimizer.minimize(recons_loss, global_step = global_step_tensor, var_list=vars_trainable)
-	op = optimizer.minimize(loss, global_step=global_step_tensor, var_list=vars_encoder)
-	
-	tf.summary.scalar('soft_n_cut_loss', loss)
-	tf.summary.scalar('reconstruction_loss', recons_loss)
 	tf.summary.image('output_image', decode)
 	tf.summary.image('input_image', x)
 	tf.summary.image('segmented_op', tf.reshape(output[:,:,:,0], (-1, img_rows, img_cols, 1)))

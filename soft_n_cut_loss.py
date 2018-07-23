@@ -16,7 +16,9 @@ from tensorflow.python.keras import backend as K_B
 import coloredlogs
 from os.path import exists
 from input_data import input_data
+import os
 
+os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
 def edge_weights(flatten_image, rows , cols, std_intensity=10, std_position=4, radius=5):
 	'''
@@ -146,7 +148,7 @@ if __name__ == '__main__':
  	'''
 	img_rows = 64
 	img_cols = 64
-	num_classes = 2
+	num_classes = 16
 	bn_axis=3
 	display_step = 10
 	logdir = "checkpoints/logs"
@@ -162,6 +164,7 @@ if __name__ == '__main__':
 		conv1 = Conv2D(fa, ka, activation=activation, padding='same', kernel_initializer=kernel_initializer, name=module+'_conv_enc_'+block+'_1')(inputs)
 		conv1 = Conv2D(fb, kb, activation=activation, padding='same', kernel_initializer=kernel_initializer, name=module+'_conv_enc_'+block+'_2')(conv1)
 		conv1 = BatchNormalization(axis=bn_axis, name=module+'_bn_enc_'+block+'_3')(conv1)
+		conv1 = Dropout(0.5,  name=module+'_dropout_enc_'+block)(conv1)
 		pool1 = MaxPooling2D(pool_size=(2,2), name=module+'_maxpool_enc_'+block+'_4')(conv1)
 		tf.summary.histogram(module+'_maxpool_enc_'+block+'_4',pool1)
 		if not pre_pool:
@@ -178,6 +181,7 @@ if __name__ == '__main__':
 		merge1 = concatenate([concat_layer, up1], name=module+'_concat_'+block+'_3')
 		conv2 = Conv2D(fb, kb, activation=activation, padding='same', kernel_initializer=kernel_initializer, name=module+'_conv_dec_'+block+'_4')(merge1)
 		conv3 = Conv2D(fc, kc, activation=activation, padding='same', kernel_initializer=kernel_initializer,name=module+'_conv_dec_'+block+'_5')(conv2)
+		conv3 = Dropout(0.75, name=module+'_dropout_dec_'+block)(conv3)
 		conv3 = BatchNormalization(axis=bn_axis, name=module+'_bn_dec_'+block+'_6')(conv3)
 		tf.summary.histogram(module+'_bn_dec_'+block+'_6', conv3)
 		return conv3
@@ -188,7 +192,7 @@ if __name__ == '__main__':
 		conv1 = Conv2D(fa, ka, activation=activation, padding='same', kernel_initializer=kernel_initializer, name=module+"_join_conv_1")(inputs)
 		conv1 = Conv2D(fb, kb, activation=activation, padding='same', kernel_initializer=kernel_initializer, name=module+"_join_conv_2")(conv1)
 		conv1 = BatchNormalization(axis=bn_axis, name=module+'_join_bn_3_')(conv1)
-		conv1 = Dropout(0.5, name=module+'_join_dropout_4')(conv1)
+		conv1 = Dropout(0.75, name=module+'_join_dropout_4')(conv1)
 		tf.summary.histogram(module+'_join_bn_3_', conv1)
 		return conv1
 	
@@ -205,7 +209,7 @@ if __name__ == '__main__':
 			prepool_3, layer3 = enc_conv_block(layer2, [256,256], [3,3], block='c', module=module)
 			prepool_4, layer4 = enc_conv_block(layer3, [512,512], [3,3], block='d', module=module)
 
-			layer4 = Dropout(0.5)(layer4)
+			layer4 = Dropout(0.7)(layer4)
 
 			join_layer = join_enc_dec(layer4, [1024,1024], [3,3], module=module)
 		with tf.name_scope(module+'_Decoder'):
@@ -224,7 +228,7 @@ if __name__ == '__main__':
 		else:
 			img_input = input_tensor
 		x = unet(input_tensor = img_input, output_layers=num_classes, module='ENCODER')
-		x = tf.nn.softmax(x, axis=2)
+		x = tf.nn.softmax(x, axis=3)
 		return (x)
 	def decoder(input_shape=[-1, img_rows,img_cols,3], input_tensor=None):
 		if input_tensor is None:
@@ -254,12 +258,15 @@ if __name__ == '__main__':
 	
 	vars_encoder = [var for var in tf.trainable_variables() if var.name.startswith("ENCODER")]
 	vars_trainable = [var for var in tf.trainable_variables()]
+	start_learning_rate = 1e-6#0.000001
+	lr = tf.train.exponential_decay(start_learning_rate, global_step_tensor, 5000, 0.5, staircase=True)
 	with tf.name_scope('optimization'):
-		optimizer = tf.train.AdamOptimizer(learning_rate=1e-3)
+		optimizer = tf.train.AdamOptimizer(learning_rate=lr)
 		op_recons = optimizer.minimize(recons_loss, global_step = global_step_tensor, var_list=vars_trainable)
 		op = optimizer.minimize(loss, global_step=global_step_tensor, var_list=vars_encoder)
 		grads_recons = optimizer.compute_gradients(recons_loss)
 		grads_soft = optimizer.compute_gradients(loss, var_list=vars_encoder)
+		tf.summary.scalar('Learning_Rate', lr)
 	with tf.name_scope('grad_reconstruction'):
 		for index, grad in enumerate(grads_recons):
 			tf.summary.histogram("{}_grad".format(grads_recons[index][1].name), grads_recons[index])
@@ -267,11 +274,12 @@ if __name__ == '__main__':
 		for index, grad in enumerate(grads_soft):
 			tf.summary.histogram("{}_grad".format(grads_soft[index][1].name), grads_soft[index])
 		
-
+	output_vis = tf.reshape(tf.cast(tf.round( tf.multiply(tf.argmax(output, axis=3),(255//(num_classes-1))) ), tf.uint8), (-1, img_rows, img_cols, 1))
+	print (output_vis.get_shape())
 	tf.summary.image('output_image', decode)
 	tf.summary.image('input_image', x)
-	tf.summary.image('segmented_op', tf.reshape(output[:,:,:,0], (-1, img_rows, img_cols, 1)))
-	tf.summary.histogram('segmented_image', output)
+	tf.summary.image('segmented_op', output_vis)
+	tf.summary.histogram('segmented_image', output_vis)
 	tf.summary.histogram('reconstructed_image', decode)
 
 	merged = tf.summary.merge_all()
@@ -302,7 +310,9 @@ if __name__ == '__main__':
 			gst, _=  sess.run([global_step_tensor, op_recons], feed_dict={x:batch_x})
 			i+=1
 			if i%display_step ==0:
-				soft_loss, reconstruction_loss, summary, segment, output_image =  sess.run([loss, recons_loss, merged, output, decode], feed_dict={x:batch_x})
+				soft_loss, reconstruction_loss, summary, segment, output_image =  sess.run([loss, recons_loss, merged, output_vis, decode], feed_dict={x:batch_x})
 				train_writer.add_summary(summary, gst)
 				tf.logging.info("Iteration: " + str(gst) + " Soft N-Cut Loss: " + str(soft_loss) + " Reconstruction Loss " + str(reconstruction_loss))
+				# print (segment.max())
+				# print (segment.min())
 				saver.save(sess, checkpt_dir_ckpt, global_step=tf.train.get_global_step())

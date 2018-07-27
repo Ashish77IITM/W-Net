@@ -17,7 +17,7 @@ import coloredlogs
 from os.path import exists
 from input_data import input_data
 import os
-
+import time
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
 
 def edge_weights(flatten_image, rows , cols, std_intensity=10, std_position=4, radius=5):
@@ -150,7 +150,7 @@ if __name__ == '__main__':
 	img_cols = 64
 	num_classes = 16
 	bn_axis=3
-	display_step = 10
+	display_step = 500
 	logdir = "checkpoints_recons/logs"
 	checkpt_dir_ckpt = "checkpoints_recons/trained_recons.ckpt"
 	checkpt_dir = "checkpoints_recons"
@@ -166,7 +166,7 @@ if __name__ == '__main__':
 		conv1 = BatchNormalization(axis=bn_axis, name=module+'_bn_enc_'+block+'_3')(conv1)
 		conv1 = Dropout(0.5,  name=module+'_dropout_enc_'+block)(conv1)
 		pool1 = MaxPooling2D(pool_size=(2,2), name=module+'_maxpool_enc_'+block+'_4')(conv1)
-		tf.summary.histogram(module+'_maxpool_enc_'+block+'_4',pool1)
+		# tf.summary.histogram(module+'_maxpool_enc_'+block+'_4',pool1)
 		if not pre_pool:
 			return pool1
 		else:
@@ -183,7 +183,7 @@ if __name__ == '__main__':
 		conv3 = Conv2D(fc, kc, activation=activation, padding='same', kernel_initializer=kernel_initializer,name=module+'_conv_dec_'+block+'_5')(conv2)
 		conv3 = Dropout(0.75, name=module+'_dropout_dec_'+block)(conv3)
 		conv3 = BatchNormalization(axis=bn_axis, name=module+'_bn_dec_'+block+'_6')(conv3)
-		tf.summary.histogram(module+'_bn_dec_'+block+'_6', conv3)
+		# tf.summary.histogram(module+'_bn_dec_'+block+'_6', conv3)
 		return conv3
 
 	def join_enc_dec(inputs, filters=[1024,1024], kernel=[3,3],activation='relu', kernel_initializer='he_normal', module='', block='join'):	
@@ -193,7 +193,7 @@ if __name__ == '__main__':
 		conv1 = Conv2D(fb, kb, activation=activation, padding='same', kernel_initializer=kernel_initializer, name=module+"_join_conv_2")(conv1)
 		conv1 = BatchNormalization(axis=bn_axis, name=module+'_join_bn_3_')(conv1)
 		conv1 = Dropout(0.75, name=module+'_join_dropout_4')(conv1)
-		tf.summary.histogram(module+'_join_bn_3_', conv1)
+		# tf.summary.histogram(module+'_join_bn_3_', conv1)
 		return conv1
 	
 	def unet(input_size=(-1,img_rows,img_cols,3), input_tensor=None, output_layers=1,module=''):
@@ -267,9 +267,9 @@ if __name__ == '__main__':
 		grads_recons = optimizer.compute_gradients(recons_loss)
 		# grads_soft = optimizer.compute_gradients(loss, var_list=vars_encoder)
 		tf.summary.scalar('Learning_Rate', lr)
-	with tf.name_scope('grad_reconstruction'):
-		for index, grad in enumerate(grads_recons):
-			tf.summary.histogram("{}_grad".format(grads_recons[index][1].name), grads_recons[index])
+	# with tf.name_scope('grad_reconstruction'):
+	# 	for index, grad in enumerate(grads_recons):
+			# tf.summary.histogram("{}_grad".format(grads_recons[index][1].name), grads_recons[index])
 	# with tf.name_scope('grad_softncut'):
 	# 	for index, grad in enumerate(grads_soft):
 	# 		tf.summary.histogram("{}_grad".format(grads_soft[index][1].name), grads_soft[index])
@@ -278,8 +278,8 @@ if __name__ == '__main__':
 	tf.summary.image('output_image', decode)
 	tf.summary.image('input_image', x)
 	tf.summary.image('segmented_op', output_vis)
-	tf.summary.histogram('segmented_image', output_vis)
-	tf.summary.histogram('reconstructed_image', decode)
+	# tf.summary.histogram('segmented_image', output_vis)
+	# tf.summary.histogram('reconstructed_image', decode)
 
 	merged = tf.summary.merge_all()
 	saver = tf.train.Saver()
@@ -302,16 +302,19 @@ if __name__ == '__main__':
 
 		# img_lab = np.expan/d_dims(cv2.cvtColor(img, cv2.COLOR_BGR2LAB), axis=0)
 		i = 0
+		times = []
 		while True:
+			start = time.time()
 			batch_x = sess.run(next_items)
 			# print (batch_x)
 			# _ = sess.run([op], feed_dict={x:batch_x})
 			gst, _=  sess.run([global_step_tensor, op_recons], feed_dict={x:batch_x})
+			times.append(time.time() - start)
 			i+=1
 			if i%display_step ==0:
 				reconstruction_loss, summary, segment, output_image =  sess.run([recons_loss, merged, output_vis, decode], feed_dict={x:batch_x})
 				train_writer.add_summary(summary, gst)
-				tf.logging.info("Iteration: " + str(gst)+ " Reconstruction Loss " + str(reconstruction_loss))
+				tf.logging.info("Iteration: " + str(gst)+ " Reconstruction Loss " + str(reconstruction_loss) + ' Time: ' + str(np.mean(times)))
 				# print (segment.max())
 				# print (segment.min())
 				saver.save(sess, checkpt_dir_ckpt, global_step=tf.train.get_global_step())

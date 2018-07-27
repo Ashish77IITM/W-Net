@@ -1,3 +1,4 @@
+# http://blog.s-schoener.com/2017-12-15-parallel-tensorflow-intro/ for multi gpu training
 import cv2
 import numpy as np 
 import tensorflow as tf 
@@ -20,7 +21,7 @@ import os
 import time
 # os.environ["CUDA_VISIBLE_DEVICES"]="0"
 
-def edge_weights(flatten_image, rows , cols, std_intensity=10, std_position=4, radius=5):
+def edge_weights(flatten_image, rows , cols, std_intensity= 3.0, std_position = 1.0, radius=5):
 	'''
 	Inputs :
 	flatten_image : 1 dim tf array of the row flattened image ( intensity is the average of the three channels) 
@@ -39,7 +40,8 @@ def edge_weights(flatten_image, rows , cols, std_intensity=10, std_position=4, r
 	'''
 	A = outer_product(flatten_image, tf.ones_like(flatten_image))
 	A_T = tf.transpose(A)
-	intensity_weight = tf.exp(-1*tf.square((tf.divide((A - A_T), std_intensity))))
+	# print (A)
+	intensity_weight = tf.exp(-1*tf.square((tf.realdiv((A - A_T), std_intensity))))
 
 	xx, yy = tf.meshgrid(tf.range(rows), tf.range(cols))
 	xx = tf.reshape(xx, (rows*cols,))
@@ -51,9 +53,9 @@ def edge_weights(flatten_image, rows , cols, std_intensity=10, std_position=4, r
 	yi_yj = A_y - tf.transpose(A_y)
 
 	sq_distance_matrix = tf.square(xi_xj) + tf.square(yi_yj)
-
-	dist_weight = tf.exp(-tf.divide(sq_distance_matrix,tf.square(std_position)))
-	dist_weight = tf.cast(dist_weight, tf.float32)
+	sq_distance_matrix = tf.cast(sq_distance_matrix, tf.float32)
+	dist_weight = tf.exp(-1*tf.realdiv(sq_distance_matrix,tf.square(std_position)))
+	# dist_weight = tf.cast(dist_weight, tf.float32)
 	print (dist_weight.get_shape())
 	print (intensity_weight.get_shape())
 	weight = tf.multiply(intensity_weight, dist_weight)
@@ -150,7 +152,8 @@ if __name__ == '__main__':
 	img_cols = 64
 	num_classes = 16
 	bn_axis=3
-	display_step = 20
+	display_step = 5
+	recons_step = 5
 	logdir = "checkpoints_multigpu/logs"
 	checkpt_dir_ckpt = "checkpoints_multigpu/trained.ckpt"
 	checkpt_dir = "checkpoints_multigpu"
@@ -219,7 +222,8 @@ if __name__ == '__main__':
 				
 
 				with tf.device(assign_to_device(id, controller)), tf.name_scope(name):
-					output, decode, loss, recons_loss = create_wnet(input_fn, num_classes, True)
+					next_items = input_fn.get_next()
+					output, decode, loss, recons_loss = create_wnet(next_items, num_classes, True)
 					vars_encoder = [var for var in tf.trainable_variables() if var.name.startswith("ENCODER")]
 					vars_trainable = [var for var in tf.trainable_variables()]
 					with tf.name_scope('Compute_gradients'):
@@ -334,6 +338,16 @@ if __name__ == '__main__':
 		print (num_classes)
 		output = encoder(num_classes, input_tensor = input_tensor)
 		decode = decoder(input_tensor=output)
+		with tf.name_scope('Images'):
+	
+			output_flatten = tf.reshape(output, (-1, img_rows*img_cols, num_classes))
+			colormap = tf.reshape(tf.linspace(0.0, 255.0, num_classes), (num_classes, -1))
+			image_segmented = tf.map_fn(lambda x: tf.reshape(tf.matmul(x, colormap), (img_rows, img_cols, 1)), output_flatten, dtype=output_flatten.dtype)
+
+			tf.summary.image('Input', input_tensor)
+			tf.summary.image('Segmented', image_segmented)
+			tf.summary.image('Reconstruction', decode)
+
 		if loss_need:
 			loss, recons_loss = loss_functions(input_tensor, output, decode)
 			return output, decode, loss, recons_loss
@@ -342,12 +356,12 @@ if __name__ == '__main__':
 	
 
 	iterator = input_data()
-	next_items = iterator.get_next()
 	
-	start_learning_rate = 5e-7#0.000001
-	lr = tf.train.exponential_decay(start_learning_rate, global_step_tensor, 20000, 0.5, staircase=True)
+	start_learning_rate =5e-6#0.000001
+	lr = tf.train.exponential_decay(start_learning_rate, global_step_tensor, 5000, 0.975, staircase=True)
+	tf.summary.scalar('Learning_Rate', lr)
 	optimizer = tf.train.AdamOptimizer(learning_rate=lr)
-	apply_recons_op, apply_soft_op, avg_loss_recons, avg_loss_soft = create_parallel_optimization(create_wnet, next_items, optimizer, num_classes)
+	apply_recons_op, apply_soft_op, avg_loss_recons, avg_loss_soft = create_parallel_optimization(create_wnet, iterator, optimizer, num_classes)
 	with tf.name_scope('Loss'):
 		tf.summary.scalar('Reconstruction_Loss', avg_loss_recons)
 		tf.summary.scalar('Soft_N_Cut_Loss', avg_loss_soft)
@@ -360,26 +374,31 @@ if __name__ == '__main__':
 		
 		init = tf.global_variables_initializer()
 		sess.run(init)
-		'''
+		
 		if exists(checkpt_dir):
 			if tf.train.latest_checkpoint(checkpt_dir) is not None:
 				tf.logging.info('Loading Checkpoint from '+ tf.train.latest_checkpoint(checkpt_dir))
 				saver.restore(sess, tf.train.latest_checkpoint(checkpt_dir))
 		else:
 			tf.logging.info('Training from Scratch -  No Checkpoint found')
-		'''
+		
 		# img_lab = np.expand_dims(cv2.cvtColor(img, cv2.COLOR_BGR2LAB), axis=0)
 		i = 0
+	
 		times = []
+		learning_rate = sess.run(lr)
+		tf.logging.info('Learning Rate: ' + str(learning_rate))
+
 		while True:
 			start = time.time()
+			# for _ in range(recons_step):
 			_= sess.run([apply_soft_op])
 			_= sess.run([apply_recons_op])
 			# print (batch_x)
-			average_reconstruction_loss, average_softncut_loss, summary, gst = sess.run([avg_loss_recons, avg_loss_soft, merged, global_step_tensor])
 			times.append(time.time() - start)
 			i+=1
-			if i%1 ==0:
+			if i%(display_step*recons_step) ==0:
+				average_reconstruction_loss, average_softncut_loss, summary, gst = sess.run([avg_loss_recons, avg_loss_soft, merged, global_step_tensor])
 				train_writer.add_summary(summary, gst)
 				tf.logging.info("Iteration: " + str(gst) + " Soft N-Cut Loss: " + str(average_softncut_loss) + " Reconstruction Loss " + str(average_reconstruction_loss) + " Time " + str(np.mean(times)))
 				# print (segment.max())

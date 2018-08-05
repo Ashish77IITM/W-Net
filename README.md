@@ -28,6 +28,8 @@ tensorboard --logdir=.
 
 ![Reconstruction loss](./images/L2_loss.png)
 
+![N-Cut-loss](./images/N-cut-loss.png)
+
 ## Pipeline of Tasks
 
 - [x] Encoder Decoder Architecture

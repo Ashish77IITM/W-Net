@@ -26,7 +26,7 @@ tensorboard --logdir=.
 ```
 ## Loss Description
 
-![Reconstruction loss](./images/L2 loss.png)
+![Reconstruction loss](./images/L2_loss.png)
 
 ## Pipeline of Tasks
 

@@ -25,7 +25,7 @@ cd checkpoints/logs
 tensorboard --logdir=.
 ```
 ## Loss Description
-- Reconstruction loss
+
 ![Reconstruction loss](./images/L2 loss.png)
 
 ## Pipeline of Tasks

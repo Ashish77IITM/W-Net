@@ -30,6 +30,12 @@ tensorboard --logdir=.
 
 ![N-Cut-loss](./images/N-cut-loss.png)
 
+![Soft-N-cut-loss](./images/Soft-N-cut-loss.png)
+
+## Training Procedure
+
+## Results 
+
 ## Pipeline of Tasks
 
 - [x] Encoder Decoder Architecture
